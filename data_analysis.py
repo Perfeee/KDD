@@ -35,24 +35,21 @@ def link_time_ave_analysis(traj_df, using_file=True, name=""):
         analysis_log += single_result + "\n"
     return analysis_log
 
-def train_local_data_gen(train, link_id, target_routes, routes):
-    # 用于抽取数据，两个过滤标准，一是路线，而是linkid， 暂时现在是路线可以多条，linkid只能有一个。如果要按全部路线进行分析，可以使用analysis_by_time函数
+def train_local_data_gen(train, link_id, target_routes=None):
+    # 用于抽取数据，两个过滤标准，一是路线，而是linkid，暂时现在是路线可以多条，linkid只能有一个。如果要按全部路线进行分析，可以使用analysis_by_time函数
     # extract linkid 123, route a2, a3
-    intersection_id, tollgate_id = target_routes[:,0], target_routes[: , 1]
-    extra_condition = np.array([0])
-    for intersection, tollgate in zip(intersection_id, tollgate_id):
-        if extra_condition.any():
-            extra_condition = ((train.intersection_id == intersection) & (train.tollgate_id == tollgate)) | extra_condition
-        else:
-            extra_condition = ((train.intersection_id == intersection) & (train.tollgate_id == tollgate))
-    train = train[extra_condition]
+    if target_routes != None:
+        intersection_id, tollgate_id = target_routes[:, 0], target_routes[:, 1]
+        extra_condition = np.array([0])
+        for intersection, tollgate in zip(intersection_id, tollgate_id):
+            print(intersection, tollgate)
+            if extra_condition.any():
+                extra_condition = ((train.intersection_id == intersection) & (train.tollgate_id == tollgate)) | extra_condition
+            else:
+                extra_condition = ((train.intersection_id == intersection) & (train.tollgate_id == tollgate))
+        train = train[extra_condition]
     local_data = []
-    def compute_if_link_id_miss(i):
-        for j in i.split(";"):
-            pass
     for i in train.travel_seq:
-        if link_id not in i:
-            pass
         for j in i.split(";"):
             if j[0:3] == link_id:
                 tmp = j.split("#")
@@ -154,18 +151,62 @@ def fill_if_link_id_missing(train, routes, links):
     print(count)
     return train
 
+def time_seq_analysis(local_array, link_id=None, granularity="hour"):
+    local_data = pd.DataFrame(local_array)
+    local_data.columns = ["link_id", "time", "length"]
+    local_data["length"] = local_data.length.astype(float)
+    # 一致性（一刀切）剔除上界和下界分别1%的异常数据
+    local_data = local_data[local_data.length < np.percentile(local_data.length.values, 99)]
+    local_data = local_data[local_data.length > np.percentile(local_data.length.values, 1)]
+    local_data["time"] = pd.to_datetime(local_data["time"])
+    local_data["starting_weekday"] = local_data["time"].dt.weekday
+    local_data["starting_date"] = local_data["time"].map(pd.datetime.date)
+    local_data["starting_hour"] = local_data["time"].dt.hour
+    local_data["minute"] = local_data["time"].dt.hour*60 + local_data["time"].dt.minute
+    group_by_weekday = local_data.groupby(by=["starting_weekday"])
+    extracted_data = defaultdict(list)
+    for name1, group_weekday in group_by_weekday:
+        print(name1)
+        if granularity == "hour":
+            group_by_hour = group_weekday.groupby(by="starting_hour").mean()
+            #print(group_by_hour)
+            plt.plot(group_by_hour.length)
+            extracted_data[name1] = list(group_by_hour.length.values)
+        elif "minute" in granularity:
+            fine_granularity = int(granularity.split("_")[1])
+            group_weekday["minute"] = (group_weekday["minute"]/fine_granularity).astype(int)
+            print(group_weekday["minute"])
+            group_by_minute = group_weekday.groupby(by="minute").mean()
+            extracted_data[name1] = list(group_by_minute.length.values)
+            plt.plot(group_by_minute.length)
+    plt.title("link_id:{} X--{}, Y--average_time_length, categorized_by_weekday".format(link_id, granularity))
+    plt.show()
+    return extracted_data
+
+def multi_local_data_gen(traj_df, single_link_id, secondary_cate, target_routes=None):
+    # 按linkid，weekday，窗口大小，没有shift产生均值数据
+    if glob.glob(gen_data_file_prefix + "link_{}.pkl".format(single_link_id)):
+        local_data = np.load(gen_data_file_prefix + "link_{}.pkl".format(single_link_id))
+    else:
+        local_data = train_local_data_gen(traj_df, single_link_id, target_routes=target_routes)
+        local_data = np.array(local_data)
+        local_data.dump(gen_data_file_prefix + "link_{}.pkl".format(single_link_id))
+    extracted_data = time_seq_analysis(local_data, single_link_id, secondary_cate)
+    with open(gen_data_file_prefix + "mean_data_by_weekday_{}_{}.pkl".format(secondary_cate, single_link_id), "wb") as f:
+        pickle.dump(extracted_data, f)
+
 
 if __name__ == "__main__":
     routes = pd.read_csv(train_data_file_prefix + "routes(table4).csv")
     links = pd.read_csv(train_data_file_prefix + "links(table3).csv")
     links["link_id"] = links.link_id.astype(str)
     if glob.glob(train_data_file_prefix + "trajectories(new)_training.csv"):
-        pd.read_csv(train_data_file_prefix + "trajectories(new)_training.csv")
+        traj_df = pd.read_csv(train_data_file_prefix + "trajectories(new)_training.csv")
     else:
         traj_df = pd.read_csv(train_data_file_prefix + "trajectories(table5)_training.csv")
         traj_df = fill_if_link_id_missing(traj_df, routes, links)
         traj_df.to_csv(train_data_file_prefix + "trajectories(new)_training.csv")
-
+    traj_df["tollgate_id"] = traj_df.tollgate_id.astype(str)
     # print(traj_df.columns)
     # traj_df["starting_time"] = pd.to_datetime(traj_df["starting_time"])
     # traj_df["starting_date"] = traj_df["starting_time"].map(pd.datetime.date)
@@ -175,6 +216,9 @@ if __name__ == "__main__":
     # group_basis = "starting_hour"
     # group_basis = "starting_weekday"
     # analysis_by_time(traj_df=traj_df, group_basis=group_basis)
-    # link123_local_data = train_local_data_gen(traj_df, "123", ["A","A"], tollgate_id=[2, 3])
-    # link123_local_data = np.array(link123_local_data)
-    # link123_local_data.dump(gen_data_file_prefix + "link_123.pkl")
+    single_link_id = "111"
+    target_routes = np.array([["C", 1], ["C", 3], ["B", 1], ["B", 3]])
+    secondary_cate = "minute_20"
+    multi_local_data_gen(traj_df, single_link_id, secondary_cate, )
+    #@TODO  可以写个for循环，产生所有linkid的数据，并存储
+
