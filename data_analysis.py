@@ -86,7 +86,7 @@ def fill_if_link_id_missing(train, routes, links):
         s = sum(tmp)
         tmp = [x/s for x in tmp]
         return tmp
-
+    count = 0
     for i in range(train.shape[0]):
         j = train.iloc[i,:]
         route = routes[(routes.intersection_id == j.intersection_id) & (routes.tollgate_id == j.tollgate_id)]
@@ -94,8 +94,8 @@ def fill_if_link_id_missing(train, routes, links):
         tmp = j.travel_seq.split(";")
         diff = set(route_link_seq).difference(set([x[0:3] for x in tmp]))
         # diff = list(diff)
-
         if len(diff) > 0:
+            count += 1
             pos = [route_link_seq.index(x) for x in diff]
             pos = sorted(pos)
             # print(diff)
@@ -120,11 +120,11 @@ def fill_if_link_id_missing(train, routes, links):
                 # print("right", route_link_seq[sub_route[-1]+1])
                 # print(j)
                 # print(j.travel_seq)
-                left = [x for x in tmp if route_link_seq[sub_route[0]-1] in x]
-                right = [x for x in tmp if route_link_seq[sub_route[-1]+1] in x]
+                left = [x for x in tmp if route_link_seq[sub_route[0]-1] == x[0:3]]
+                right = [x for x in tmp if route_link_seq[sub_route[-1]+1] == x[0:3]]
                 # print(left)
                 # print(right)
-                miss_sum_time_length = (pd.to_datetime(right[0].split("#")[1]) - pd.to_datetime(left[0].split("#")[1])).seconds
+                miss_sum_time_length = (pd.to_datetime(right[0].split("#")[1]) - pd.to_datetime(left[0].split("#")[1])).seconds - float(left[0].split("#")[2])
                 sub_route_link_id = []
                 for x in sub_route:
                     sub_route_link_id.append(route_link_seq[x])
@@ -132,17 +132,18 @@ def fill_if_link_id_missing(train, routes, links):
                 insert_seq = []
                 cum_ratio = 0
                 for link, ratio in zip(sub_route_link_id, ratio_list):
-                    cum_ratio += ratio
                     insert_string = ""
                     insert_string += link
                     insert_string += "#"
-                    insert_string += str(pd.to_datetime(tmp[sub_route[0] -1].split("#")[1]) + pd.to_timedelta(str(miss_sum_time_length*cum_ratio)+"S"))
+                    insert_string += str(pd.to_datetime(tmp[sub_route[0] - 1].split("#")[1]) + pd.to_timedelta(tmp[sub_route[0] - 1].split("#")[2]+"S") + pd.to_timedelta(str(miss_sum_time_length*cum_ratio)+"S"))
                     insert_string += "#" + str(miss_sum_time_length*ratio)
                     insert_seq.append(insert_string)
-                tmp = tmp[0:sub_route[0]-1] + insert_seq + tmp[sub_route[0]-1:]
+                    cum_ratio += ratio
+                tmp = tmp[0:sub_route[0]] + insert_seq + tmp[sub_route[0]:]
             new_seq = ";".join(tmp)
             train.iloc[i,4] = new_seq
-            # print("new_seq", new_seq)
+            print("new_seq", new_seq)
+            print("old seq", j.travel_seq)
         else:
             continue
             # p = [s+1 for s in pos]
@@ -150,6 +151,7 @@ def fill_if_link_id_missing(train, routes, links):
             #     print(route, j.intersection_id, j.tollgate_id)
             #     print(i, route_link_seq, tmp, diff)
             #     print(pos[1:], p[0:-1])
+    print(count)
     return train
 
 
