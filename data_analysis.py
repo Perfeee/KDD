@@ -74,6 +74,7 @@ def fill_if_link_id_missing(train, routes, links):
     # 缺失数据不会是该路线中的最后一个linkid和第一个linkid
     # 有两个记录，分别是57942， 105291缺了两段（不止两个link）的数据
     # 这个填充方式有两个缺陷，一是占比问题，二是精度问题，只能精确到秒
+    # TODO 验证一下产生的填充值是否正常
     def ratio_compute(miss_sub_route, links):
         # 占比计算
         # miss_sub_root 是一个linkid串，注意跟下面的subroute不一样，下面的linkid的位置串
@@ -151,7 +152,7 @@ def fill_if_link_id_missing(train, routes, links):
     print(count)
     return train
 
-def time_seq_analysis(local_array, link_id=None, granularity="hour"):
+def time_seq_analysis(local_array, link_id=None, granularity="hour", sub_image=True):
     local_data = pd.DataFrame(local_array)
     local_data.columns = ["link_id", "time", "length"]
     local_data["length"] = local_data.length.astype(float)
@@ -165,25 +166,56 @@ def time_seq_analysis(local_array, link_id=None, granularity="hour"):
     local_data["minute"] = local_data["time"].dt.hour*60 + local_data["time"].dt.minute
     group_by_weekday = local_data.groupby(by=["starting_weekday"])
     extracted_data = defaultdict(list)
+    plt.figure()
+    # TODO 加散点图，每张图上面的数据量，以及统计信息
+    plt.title("link_id:{} X--{}, Y--average_time_length, categorized_by_weekday".format(link_id, granularity))
     for name1, group_weekday in group_by_weekday:
         print(name1)
         if granularity == "hour":
             group_by_hour = group_weekday.groupby(by="starting_hour").mean()
+            label = "id:{},day:{}".format(link_id, name1)
             #print(group_by_hour)
-            plt.plot(group_by_hour.length)
+            plt.plot(group_by_hour.length, label=label)
             extracted_data[name1] = list(group_by_hour.length.values)
-        elif "minute" in granularity:
+        elif ("minute" in granularity) and sub_image:
             fine_granularity = int(granularity.split("_")[1])
             group_weekday["minute"] = (group_weekday["minute"]/fine_granularity).astype(int)
-            print(group_weekday["minute"])
+            # print(group_weekday["minute"])
+            label = "id:{},day:{}".format(link_id, name1)
+            plt.tight_layout()
+            plt.subplot(int("42{}".format(name1+1)))
+            # 散点图
+            # plt.scatter(group_weekday["minute"], group_weekday["length"], label=label)
+            # 均值曲线图
             group_by_minute = group_weekday.groupby(by="minute").mean()
             extracted_data[name1] = list(group_by_minute.length.values)
-            plt.plot(group_by_minute.length)
-    plt.title("link_id:{} X--{}, Y--average_time_length, categorized_by_weekday".format(link_id, granularity))
-    plt.show()
+            plt.plot(group_by_minute.length, label=label)
+            ax = plt.subplot(int("42{}".format(name1+1)))
+            ax.set_title("link_id:{}, weekday:{}".format(link_id, name1))
+        elif ("minute" in granularity) and (not sub_image):
+            fine_granularity = int(granularity.split("_")[1])
+            group_weekday["minute"] = (group_weekday["minute"]/fine_granularity).astype(int)
+            label = "id:{},day:{}".format(link_id, name1)
+            # 散点图
+            # plt.scatter(group_weekday["minute"], group_weekday["length"], label=label)
+            # 均值曲线图
+            group_by_minute = group_weekday.groupby(by="minute").mean()
+            extracted_data[name1] = list(group_by_minute.length.values)
+            plt.plot(group_by_minute.length, label=label)
+            plt.title("link_id:{} X--{},Y--time_length,categorized_by_weekday_{}".format(link_id, granularity, name1))
+            # plt.savefig(gen_data_file_prefix+"image/link_id_{}_X_{}_Y_scatter_time_length_weekday_{}.png".format(link_id, granularity, name1))
+            plt.savefig(gen_data_file_prefix+"image/link_id_{}_X_{}_Y_average_time_length_weekday_{}.png".format(link_id, granularity, name1))
+            plt.close()
+
+    # plt.title("link_id:{} X--{}, Y--average_time_length, categorized_by_weekday".format(link_id, granularity))
+    if (("minute" in granularity) and sub_image) or (granularity == "hour"):
+        # plt.savefig(gen_data_file_prefix+"image/link_id_{}_X_{}_Y_scatter_time_length_weekday.png".format(link_id, granularity, name1))
+        plt.savefig(gen_data_file_prefix+"image/link_id_{}_X_{}_Y_average_time_length_weekday.png".format(link_id, granularity, name1))
+        # plt.show()
+        plt.close()
     return extracted_data
 
-def multi_local_data_gen(traj_df, single_link_id, secondary_cate, target_routes=None):
+def multi_local_data_gen(traj_df, single_link_id, secondary_cate, target_routes=None, save_file=False):
     # 按linkid，weekday，窗口大小，没有shift产生均值数据
     if glob.glob(gen_data_file_prefix + "link_{}.pkl".format(single_link_id)):
         local_data = np.load(gen_data_file_prefix + "link_{}.pkl".format(single_link_id))
@@ -191,9 +223,10 @@ def multi_local_data_gen(traj_df, single_link_id, secondary_cate, target_routes=
         local_data = train_local_data_gen(traj_df, single_link_id, target_routes=target_routes)
         local_data = np.array(local_data)
         local_data.dump(gen_data_file_prefix + "link_{}.pkl".format(single_link_id))
-    extracted_data = time_seq_analysis(local_data, single_link_id, secondary_cate)
-    with open(gen_data_file_prefix + "mean_data_by_weekday_{}_{}.pkl".format(secondary_cate, single_link_id), "wb") as f:
-        pickle.dump(extracted_data, f)
+    extracted_data = time_seq_analysis(local_data, single_link_id, secondary_cate, sub_image=True)
+    if save_file == True:
+        with open(gen_data_file_prefix + "mean_data_by_weekday_{}_{}.pkl".format(secondary_cate, single_link_id), "wb") as f:
+            pickle.dump(extracted_data, f)
 
 
 if __name__ == "__main__":
@@ -212,13 +245,15 @@ if __name__ == "__main__":
     # traj_df["starting_date"] = traj_df["starting_time"].map(pd.datetime.date)
     # traj_df["starting_hour"] = traj_df["starting_time"].dt.hour
     # traj_df["starting_weekday"] = traj_df["starting_time"].dt.weekday
+
     # group_basis = "starting_date"
     # group_basis = "starting_hour"
     # group_basis = "starting_weekday"
     # analysis_by_time(traj_df=traj_df, group_basis=group_basis)
+
     single_link_id = "111"
     target_routes = np.array([["C", 1], ["C", 3], ["B", 1], ["B", 3]])
-    secondary_cate = "minute_20"
-    multi_local_data_gen(traj_df, single_link_id, secondary_cate, )
-    #@TODO  可以写个for循环，产生所有linkid的数据，并存储
+    secondary_cate = "hour"
+    for single_link_id in links.link_id:
+        multi_local_data_gen(traj_df, single_link_id, secondary_cate, save_file=False)
 
