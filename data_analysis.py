@@ -183,7 +183,7 @@ def time_seq_analysis(local_array, link_id=None, granularity="hour", sub_image=T
             # plt.scatter(group_weekday["minute"], group_weekday["length"], label=label)
             # 均值曲线图
             group_by_minute = group_weekday.groupby(by="minute").mean()
-            print(group_by_minute.columns)
+            # print(group_by_minute.columns)
             group_by_minute = group_by_minute.sort_index()
             # print(group_by_minute.head())
             # 解决缺失时间窗，即该时间窗根本没有数据记录, 暂未解决连续缺失两段即以上的情况
@@ -216,16 +216,17 @@ def time_seq_analysis(local_array, link_id=None, granularity="hour", sub_image=T
             # plt.scatter(group_weekday["minute"], group_weekday["length"], label=label)
             # 均值曲线图
             group_by_minute = group_weekday.groupby(by="minute").mean()
+            group_by_minute = group_by_minute.sort_index()
             # 解决缺失时间窗，即该时间窗根本没有数据记录, 暂未解决连续缺失两段即以上的情况
             tmp_extracted_data = []
-            for window in range(int(1440 / fine_granularity) + 1):
+            for window in range(int(1440 / fine_granularity)):
                 try:
-                    tmp_mean_length = group_by_minute.loc[window, length].values[0]
+                    tmp_mean_length = group_by_minute.loc[window, "length"].values[0]
                     tmp_extracted_data.append((window, tmp_mean_length))
                 except:
-                    tmp_mean_length1 = group_by_minute.loc[window - 1, "length"].values[0]
-                    tmp_mean_length2 = group_by_minute.loc[window + 1, "length"].values[0]
-                    tmp_extracted_data.append((window, (tmp_mean_length1 + tmp_mean_length2) / 2))
+                    tmp_mean_length1 = group_by_minute.iloc[window-1, 0]
+                    tmp_mean_length2 = group_by_minute.iloc[(window+1)%72, 0]
+                    tmp_extracted_data.append((window, (tmp_mean_length1+tmp_mean_length2)/2))
             tmp_extracted_data = [x[1] for x in tmp_extracted_data]
             extracted_data[name1] = tmp_extracted_data
             plt.plot(extracted_data[name1], label=label)
