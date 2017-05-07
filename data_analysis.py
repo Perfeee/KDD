@@ -4,7 +4,7 @@ from collections import defaultdict
 import pickle
 import glob
 from matplotlib import pyplot as plt
-
+import sys
 
 train_data_file_prefix = "../dataSets/training/"
 gen_data_file_prefix = "../dataSets/gen_data/"
@@ -144,11 +144,6 @@ def fill_if_link_id_missing(train, routes, links):
             print("old seq", j.travel_seq)
         else:
             continue
-            # p = [s+1 for s in pos]
-            # if p[0:-1] != pos[1:]:
-            #     print(route, j.intersection_id, j.tollgate_id)
-            #     print(i, route_link_seq, tmp, diff)
-            #     print(pos[1:], p[0:-1])
     print(count)
     return train
 
@@ -188,8 +183,29 @@ def time_seq_analysis(local_array, link_id=None, granularity="hour", sub_image=T
             # plt.scatter(group_weekday["minute"], group_weekday["length"], label=label)
             # 均值曲线图
             group_by_minute = group_weekday.groupby(by="minute").mean()
-            extracted_data[name1] = list(group_by_minute.length.values)
-            plt.plot(group_by_minute.length, label=label)
+            print(group_by_minute.columns)
+            group_by_minute = group_by_minute.sort_index()
+            # print(group_by_minute.head())
+            # 解决缺失时间窗，即该时间窗根本没有数据记录, 暂未解决连续缺失两段即以上的情况
+            tmp_extracted_data = []
+            for window in range(int(1440/fine_granularity)):
+                try:
+                    tmp_mean_length = group_by_minute.loc[window, "length"]
+                    tmp_extracted_data.append((window, tmp_mean_length))
+                except KeyError:
+                    tmp_mean_length1 = group_by_minute.iloc[window-1, 0]
+                    tmp_mean_length2 = group_by_minute.iloc[(window+1)%72, 0]
+                    tmp_extracted_data.append((window, (tmp_mean_length1+tmp_mean_length2)/2))
+            tmp_extracted_data = [x[1] for x in tmp_extracted_data]
+            print("should be 72:", len(tmp_extracted_data))
+            # sys.exit(1)
+            # if group_by_minute.shape[0] < int(1440/fine_granularity):
+            #     for missing_window in set(group_by_minute.size().index).difference(set(list(range(int(1440/fine_granularity)+1)))):
+            # for row in range(group_by_minute.shape[0]):
+            # if group_by_minute.index
+            # extracted_data[name1] = list(group_by_minute.length.values)
+            extracted_data[name1] = tmp_extracted_data
+            plt.plot(extracted_data[name1], label=label)
             ax = plt.subplot(int("42{}".format(name1+1)))
             ax.set_title("link_id:{}, weekday:{}".format(link_id, name1))
         elif ("minute" in granularity) and (not sub_image):
@@ -200,8 +216,19 @@ def time_seq_analysis(local_array, link_id=None, granularity="hour", sub_image=T
             # plt.scatter(group_weekday["minute"], group_weekday["length"], label=label)
             # 均值曲线图
             group_by_minute = group_weekday.groupby(by="minute").mean()
-            extracted_data[name1] = list(group_by_minute.length.values)
-            plt.plot(group_by_minute.length, label=label)
+            # 解决缺失时间窗，即该时间窗根本没有数据记录, 暂未解决连续缺失两段即以上的情况
+            tmp_extracted_data = []
+            for window in range(int(1440 / fine_granularity) + 1):
+                try:
+                    tmp_mean_length = group_by_minute.loc[window, length].values[0]
+                    tmp_extracted_data.append((window, tmp_mean_length))
+                except:
+                    tmp_mean_length1 = group_by_minute.loc[window - 1, "length"].values[0]
+                    tmp_mean_length2 = group_by_minute.loc[window + 1, "length"].values[0]
+                    tmp_extracted_data.append((window, (tmp_mean_length1 + tmp_mean_length2) / 2))
+            tmp_extracted_data = [x[1] for x in tmp_extracted_data]
+            extracted_data[name1] = tmp_extracted_data
+            plt.plot(extracted_data[name1], label=label)
             plt.title("link_id:{} X--{},Y--time_length,categorized_by_weekday_{}".format(link_id, granularity, name1))
             # plt.savefig(gen_data_file_prefix+"image/link_id_{}_X_{}_Y_scatter_time_length_weekday_{}.png".format(link_id, granularity, name1))
             plt.savefig(gen_data_file_prefix+"image/link_id_{}_X_{}_Y_average_time_length_weekday_{}.png".format(link_id, granularity, name1))
@@ -253,7 +280,7 @@ if __name__ == "__main__":
 
     single_link_id = "111"
     target_routes = np.array([["C", 1], ["C", 3], ["B", 1], ["B", 3]])
-    secondary_cate = "hour"
+    secondary_cate = "minute_20"
     for single_link_id in links.link_id:
         multi_local_data_gen(traj_df, single_link_id, secondary_cate, save_file=False)
 
